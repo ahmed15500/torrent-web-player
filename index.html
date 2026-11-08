@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>مشغّل التورنت — خاص</title>
 <style>
-  :root{--bg:#0d1420;--panel:#16202f;--line:#243449;--txt:#e8eef6;--mut:#8fa3ba;--acc:#2f81f7;--acc2:#3fb68b}
+  :root{--bg:#0d1420;--panel:#16202f;--line:#243449;--txt:#e8eef6;--mut:#8fa3ba;--acc:#2f81f7;--acc2:#3fb68b;--warn:#e8b93e;--err:#e5534b}
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:var(--bg);color:var(--txt);font-family:"Segoe UI",Tahoma,Arial,sans-serif;padding:14px;max-width:760px;margin:0 auto}
   h1{font-size:20px;margin:6px 0 2px}
@@ -20,9 +20,10 @@
   button:active{opacity:.85}
   #playerBox{margin:14px 0}
   #playerBox video{width:100%;border-radius:12px;background:#000;max-height:70vh}
-  #status{font-size:13px;color:var(--mut);line-height:1.9;white-space:pre-wrap;word-break:break-word}
+  #status{font-size:13.5px;color:var(--txt);line-height:1.9;white-space:pre-wrap;word-break:break-word;margin-top:10px}
+  #status .dim{color:var(--mut)}
   #files{display:flex;flex-direction:column;gap:8px;margin-top:10px}
-  .fbtn{background:#0b111c;border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:11px;text-align:right;font-size:14px;cursor:pointer}
+  .fbtn{background:#0b111c;border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:11px;text-align:right;font-size:14px;cursor:pointer;width:100%}
   .fbtn:active{border-color:var(--acc)}
   .bar{height:8px;background:#0b111c;border-radius:6px;overflow:hidden;margin-top:8px}
   .bar>i{display:block;height:100%;width:0;background:var(--acc2);transition:width .3s}
@@ -55,7 +56,7 @@
 
 <div id="playerBox"></div>
 
-<p class="note">ملحوظة تقنية: التورنت من المتصفح بيشتغل مع التورنتات المتوافقة مع WebTorrent (اللي ليها web seeds أو بييرز بيتصلوا بالمتصفح). التورنتات العادية من غير دعم WebTorrent ممكن متلاقيش بييرز من المتصفح. ملفات MP4 وWebM بتشتغل أحسن حاجة؛ صيغة MKV غالبًا مش بتشتغل على متصفحات الموبايل.</p>
+<p class="note">ملحوظة تقنية: التورنت من المتصفح بيشتغل بس مع التورنتات اللي ليها مصدر يقدر المتصفح يوصله (web seed أو بييرز WebTorrent). التورنتات العادية المنتشرة على مواقع التورنت أغلبها بييرزها بتتصل ببروتوكول مبيشتغلش جوه المتصفح، فالمشغّل هيقولك كده صراحة بدل ما يعلّق. ملفات MP4 وWebM بتشتغل أحسن حاجة؛ صيغة MKV غالبًا مش بتشتغل على متصفحات الموبايل حتى بعد ما تنزل. <span style="opacity:.6">v2</span></p>
 
 <script src="https://cdn.jsdelivr.net/npm/webtorrent@2.6.5/dist/webtorrent.min.js"></script>
 <script>
@@ -66,76 +67,154 @@
   var barFill=document.getElementById('barFill');
   var playerBox=document.getElementById('playerBox');
   function status(t){statusEl.textContent=t;}
-  function fmt(n){if(!isFinite(n))return '0';var u=['B','KB','MB','GB'];var i=0;while(n>=1024&&i<3){n/=1024;i++;}return n.toFixed(1)+' '+u[i];}
+  function fmt(n){if(!isFinite(n)||n<0)return '0';var u=['B','KB','MB','GB'];var i=0;while(n>=1024&&i<3){n/=1024;i++;}return n.toFixed(1)+' '+u[i];}
+  function isPlayable(name){return /\.(mp4|webm|m4v|mov)$/i.test(name);}
+  function isVideo(name){return /\.(mp4|webm|m4v|mov|mkv|avi|ts)$/i.test(name);}
 
+  // ---------- Direct link ----------
   document.getElementById('playDirect').addEventListener('click',function(){
-    var u=document.getElementById('directUrl').value.trim();
+    var u=document.getElementById('directUrl').value.replace(/\s+/g,'');
     if(!u){alert('حط الرابط الأول');return;}
+    if(u.indexOf('magnet:')===0){
+      document.getElementById('magnet').value=u;
+      status('ℹ️ ده لينك ماجنت مش رابط مباشر — نقلته لخانة التورنت وشغّلته من هناك.');
+      addTorrent(u);
+      return;
+    }
+    playDirectUrl(u);
+  });
+  function playDirectUrl(u){
     playerBox.innerHTML='';
     var v=document.createElement('video');
     v.controls=true;v.autoplay=true;v.playsInline=true;v.src=u;
+    v.addEventListener('error',function(){
+      status('⚠️ المتصفح مقدرش يشغّل الرابط ده. الأسباب المحتملة: الصيغة مش مدعومة (زي MKV)، أو الموقع مانع التشغيل من مواقع تانية (CORS)، أو الرابط مش مباشر لملف فيديو.');
+    },true);
     playerBox.appendChild(v);
     playerBox.scrollIntoView({behavior:'smooth'});
-  });
+    status('▶ بيحاول يشغّل الرابط المباشر… لو الشاشة فضلت سودا، بص على الملاحظة اللي هتظهر هنا.');
+  }
 
-  var client=null,curTorrent=null;
+  // ---------- Torrent ----------
+  var client=null,curTorrent=null,tickTimer=null,startTime=0,metaGot=false,explained=false;
   function ensureClient(){
     if(typeof WebTorrent==='undefined'){status('⚠️ مكتبة WebTorrent لم تُحمّل — تأكد من الإنترنت وحدّث الصفحة.');return null;}
-    if(!client){client=new WebTorrent();}
+    if(!client){client=new WebTorrent({maxConns:30});}
     return client;
   }
+  function magnetName(m){
+    var mt=/[?&]dn=([^&]+)/.exec(m||'');
+    if(mt){try{return decodeURIComponent(mt[1].replace(/\+/g,' '));}catch(e){return mt[1];}}
+    return '';
+  }
+  function explainNoPeers(){
+    if(explained)return;explained=true;
+    status('⚠️ التورنت ده مش لاقي أي مصدر يقدر المتصفح يوصله.\n\nده معناه إن التورنت شغال ببييرز عاديين (بتوع برامج التورنت)، ومفيهوش web seed ولا بييرز WebTorrent — والمتصفحات مبتعرفش تتصل بالبييرز العاديين أصلًا، فالتشغيل من المتصفح مش هينفع مع التورنت ده بالذات مهما استنيت.\n\nاللي بيشتغل هنا:\n• رابط مباشر لملف فيديو مستضاف أونلاين (الخانة الأولى).\n• تورنت ليه web seed (مصدر HTTP مكتوب جواه) أو منشور لدعم WebTorrent.\n\nغير كده، التورنت العادي محتاج برنامج تورنت على الجهاز نفسه.');
+  }
+  function startWatchdog(){
+    setTimeout(function(){
+      if(curTorrent&&!metaGot){
+        status('⏳ لسه بيحاول يجيب معلومات التورنت… لو التورنت ضعيف أو ملوش مصادر متاحة للمتصفح، ممكن ميكملش. استنى ٣٠ ثانية كمان وهيبان التشخيص.');
+      }
+    },20000);
+    setTimeout(function(){
+      if(curTorrent&&(!metaGot||(curTorrent.numPeers===0&&curTorrent.downloaded===0))){explainNoPeers();}
+    },50000);
+  }
+  function playFile(f){
+    playerBox.innerHTML='';
+    if(!isPlayable(f.name)){
+      status('⚠️ الملف «'+f.name+'» صيغته مش مدعومة في متصفحات الموبايل (MKV/AVI). حتى لو التحميل كمّل، المتصفح غالبًا مش هيشغّله. بحاول أعرضه برضه — لو ماشتغلش، دي حدود المتصفح مش المشغّل.');
+    }
+    var done=false;
+    function blobFallback(){
+      if(done)return;
+      f.getBlobURL(function(err,url){
+        if(err){if(!done)status('⚠️ مقدرتش أجهّز الملف للتشغيل: '+err.message);return;}
+        done=true;
+        var v=document.createElement('video');v.controls=true;v.autoplay=true;v.playsInline=true;v.src=url;
+        playerBox.appendChild(v);
+        playerBox.scrollIntoView({behavior:'smooth'});
+      });
+    }
+    try{
+      if(typeof f.appendTo==='function'){
+        f.appendTo(playerBox,{autoplay:true,controls:true,playsInline:true});
+        done=true;
+        playerBox.scrollIntoView({behavior:'smooth'});
+      }else{blobFallback();}
+    }catch(e){blobFallback();}
+  }
   function addTorrent(id){
+    if(typeof id==='string'){
+      id=id.replace(/\s+/g,'');
+      if(/^https?:\/\//i.test(id)){playDirectUrl(id);return;}
+    }
     var c=ensureClient();if(!c)return;
     if(curTorrent){try{curTorrent.destroy();}catch(e){}}
+    if(tickTimer){clearInterval(tickTimer);tickTimer=null;}
     filesEl.innerHTML='';barWrap.style.display='block';barFill.style.width='0%';
-    status('⏳ بيتصل وبيجيب معلومات التورنت…');
+    playerBox.innerHTML='';
+    metaGot=false;explained=false;startTime=Date.now();
+    var nm=(typeof id==='string')?magnetName(id):'';
+    status('⏳ بيتصل وبيجيب معلومات التورنت'+(nm?' «'+nm+'»':'')+'…\nلو لقى مصادر متاحة للمتصفح هيبدأ على طول.');
     var opts={announce:[
       'wss://tracker.openwebtorrent.com',
       'wss://tracker.webtorrent.dev',
       'wss://tracker.btorrent.xyz',
-      'wss://tracker.files.fm:7073/announce'
+      'wss://tracker.files.fm:7073/announce',
+      'wss://tracker.webtorrent.io/announce'
     ]};
-    curTorrent=c.add(id,opts,function(t){
-      status('✅ التورنت جاهز: '+t.name+'\nاختر ملف فيديو للتشغيل:');
-      t.files.forEach(function(f){
-        var isVideo=/\.(mp4|webm|mkv|mov|m4v)$/i.test(f.name);
+    try{
+      curTorrent=c.add(id,opts,onReady);
+    }catch(e){
+      status('⚠️ اللينك ده مش ماجنت سليم. اتأكد إنك ناسخ اللينك كامل من أول magnet:?xt= لآخره.');
+      return;
+    }
+    curTorrent.on('metadata',function(){metaGot=true;});
+    curTorrent.on('error',function(e){status('⚠️ خطأ في التورنت: '+(e&&e.message?e.message:e));});
+    startWatchdog();
+    tickTimer=setInterval(function(){
+      if(!curTorrent)return;
+      barFill.style.width=(curTorrent.progress*100).toFixed(1)+'%';
+      if(explained)return;
+      if(curTorrent.progress<1){
+        status('⏬ بيحمّل «'+(curTorrent.name||nm||'التورنت')+'»… '+(curTorrent.progress*100).toFixed(1)+'%'+
+          '\nالسرعة: '+fmt(curTorrent.downloadSpeed)+'/ث — المصادر المتصلة: '+curTorrent.numPeers+
+          '\nاتنزّل: '+fmt(curTorrent.downloaded)+' من '+fmt(curTorrent.length));
+      }else{
+        status('✅ التحميل كمّل ١٠٠٪ — «'+(curTorrent.name||'')+'». اختر الملف من القايمة لو ما اشتغلش لوحده.');
+      }
+    },1000);
+    function onReady(t){
+      metaGot=true;
+      var videos=t.files.filter(function(f){return isVideo(f.name);});
+      var others=t.files.filter(function(f){return !isVideo(f.name);});
+      status('✅ وصلت معلومات التورنت: «'+t.name+'»\n'+(videos.length?'اختر ملف فيديو للتشغيل — وهيبدأ يتبث أثناء التحميل:':'مفيش ملفات فيديو واضحة في التورنت ده:'));
+      videos.concat(others).forEach(function(f){
         var b=document.createElement('button');
         b.className='fbtn';
-        b.textContent=(isVideo?'🎞️ ':'📄 ')+f.name+'  ('+fmt(f.length)+')';
-        if(isVideo){
-          b.addEventListener('click',function(){
-            playerBox.innerHTML='';
-            if(typeof f.appendTo==='function'){
-              f.appendTo(playerBox,{autoplay:true,controls:true});
-            }else if(typeof f.renderTo==='function'){
-              var v=document.createElement('video');v.controls=true;v.autoplay=true;playerBox.appendChild(v);
-              f.renderTo(v);
-            }else{
-              f.getBlobURL(function(err,url){
-                if(err){status('⚠️ '+err.message);return;}
-                var v=document.createElement('video');v.controls=true;v.autoplay=true;v.src=url;playerBox.appendChild(v);
-              });
-            }
-            playerBox.scrollIntoView({behavior:'smooth'});
-          });
+        b.textContent=(isVideo(f.name)?'🎞️ ':'📄 ')+f.name+'  ('+fmt(f.length)+')'+(isVideo(f.name)&&!isPlayable(f.name)?' — صيغة قد لا تعمل في المتصفح':'');
+        if(isVideo(f.name)){
+          b.addEventListener('click',function(){playFile(f);});
         }
         filesEl.appendChild(b);
       });
-    });
-    curTorrent.on('error',function(e){status('⚠️ خطأ: '+(e&&e.message?e.message:e));});
-    setInterval(function(){
-      if(!curTorrent)return;
-      barFill.style.width=(curTorrent.progress*100).toFixed(1)+'%';
-      if(curTorrent.progress<1){
-        status('⏬ بيحمّل… '+(curTorrent.progress*100).toFixed(1)+'%'+
-          '\nالسرعة: '+fmt(curTorrent.downloadSpeed)+'/ث — البييرز: '+curTorrent.numPeers+
-          '\nاتنزّل: '+fmt(curTorrent.downloaded)+' من '+fmt(curTorrent.length));
+      // Auto-play: single video file, or the largest playable one
+      var playable=videos.filter(function(f){return isPlayable(f.name);});
+      if(playable.length){
+        var pick=playable[0];
+        playable.forEach(function(f){if(f.length>pick.length)pick=f;});
+        status('✅ وصلت معلومات التورنت: «'+t.name+'»\n▶ بيجهّز أكبر ملف فيديو قابل للتشغيل: «'+pick.name+'» — هيبدأ أول ما يتجمع جزء كفاية، وتقدر تختار ملف تاني من القايمة.');
+        playFile(pick);
       }
-    },1000);
+    }
   }
   document.getElementById('playMagnet').addEventListener('click',function(){
-    var m=document.getElementById('magnet').value.trim();
+    var m=document.getElementById('magnet').value.replace(/\s+/g,'');
     if(!m){alert('حط لينك الماجنت الأول');return;}
+    if(/^https?:\/\//i.test(m)){playDirectUrl(m);return;}
+    if(m.indexOf('magnet:')!==0){status('⚠️ اللي حطيته مش لينك ماجنت. لينك الماجنت بيبدأ بـ magnet:?xt=urn:btih:');return;}
     addTorrent(m);
   });
   document.getElementById('torrentFile').addEventListener('change',function(e){
