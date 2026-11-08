@@ -48,15 +48,18 @@
   <label>لينك الماجنت</label>
   <input type="text" id="magnet" placeholder="magnet:?xt=urn:btih:...">
   <button id="playMagnet">▶ تشغيل الماجنت</button>
+  <button id="cloudStream" style="background:#b8860b">▶▶ بث سحابي مباشر (للأفلام MKV و H.265)</button>
+  <p class="note" style="margin-top:6px">البث السحابي بيفتح محرك بث بيحوّل صيغة الفيلم على سيرفراته ويرجّعهولك جاهز للمتصفح — ده الحل للأفلام اللي متصفح التليفون مبيعرفش يفكّ صيغتها بنفسه.</p>
   <div style="height:12px"></div>
   <label>أو اختر ملف .torrent من جهازك</label>
   <input type="file" id="torrentFile" accept=".torrent,application/x-bittorrent">
   <div id="status"></div>
   <div class="bar" id="barWrap" style="display:none"><i id="barFill"></i></div>
+  <div id="cloudSlot"></div>
   <div id="files"></div>
 </div>
 
-<p class="note">ملحوظة تقنية: التورنت من المتصفح بيشتغل بس مع التورنتات اللي ليها مصدر يقدر المتصفح يوصله (web seed أو بييرز WebTorrent). التورنتات العادية المنتشرة على مواقع التورنت أغلبها بييرزها بتتصل ببروتوكول مبيشتغلش جوه المتصفح، فالمشغّل هيقولك كده صراحة بدل ما يعلّق. ملفات MP4 وWebM بتشتغل أحسن حاجة؛ صيغة MKV غالبًا مش بتشتغل على متصفحات الموبايل حتى بعد ما تنزل. <span style="opacity:.6">v3.2</span></p>
+<p class="note">ملحوظة تقنية: التورنت من المتصفح بيشتغل بس مع التورنتات اللي ليها مصدر يقدر المتصفح يوصله (web seed أو بييرز WebTorrent). التورنتات العادية المنتشرة على مواقع التورنت أغلبها بييرزها بتتصل ببروتوكول مبيشتغلش جوه المتصفح، فالمشغّل هيقولك كده صراحة بدل ما يعلّق. ملفات MP4 وWebM بتشتغل أحسن حاجة؛ صيغة MKV غالبًا مش بتشتغل على متصفحات الموبايل حتى بعد ما تنزل. <span style="opacity:.6">v4</span></p>
 
 <script type="module">
 (async function(){
@@ -213,6 +216,13 @@
         }
         filesEl.appendChild(b);
       });
+      var slot=document.getElementById('cloudSlot');
+      slot.innerHTML='';
+      var cb=document.createElement('button');
+      cb.style.background='#b8860b';
+      cb.textContent='▶▶ بث سحابي لهذا التورنت (لو الصيغة ما اشتغلتش هنا)';
+      cb.addEventListener('click',function(){openCloud(t.infoHash);});
+      slot.appendChild(cb);
       // Auto-play: single video file, or the largest playable one
       var playable=videos.filter(function(f){return isPlayable(f.name);});
       if(playable.length){
@@ -223,6 +233,33 @@
       }
     }
   }
+  function infoHashFromMagnet(m){
+    var mt=/btih:([a-zA-Z0-9]{32,40})/i.exec(m||'');
+    if(!mt)return null;
+    var h=mt[1];
+    if(/^[0-9a-f]{40}$/i.test(h))return h.toLowerCase();
+    if(h.length===32){ // base32 -> hex
+      var alpha='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567',bits=0,val=0,out='';
+      h=h.toUpperCase();
+      for(var i=0;i<32;i++){
+        var idx=alpha.indexOf(h[i]);if(idx<0)return null;
+        val=(val<<5)|idx;bits+=5;
+        if(bits>=4){out+='0123456789abcdef'[(val>>(bits-4))&15];bits-=4;}
+      }
+      return out.length===40?out:null;
+    }
+    return null;
+  }
+  function openCloud(ih){
+    if(!ih){status('⚠️ مقدرتش أطلع بصمة التورنت (info hash) من اللينك. اتأكد إن الماجنت كامل.');return;}
+    window.open('https://webtor.io/'+ih,'_blank');
+    status('▶ اتفتح البث السحابي في صفحة جديدة. لو طلع فحص «لست روبوت» استنى ثواني وهيعدّي، ولو بتستخدم Brave نزّل الدروع (Shields) لموقع webtor.io أو افتح في Chrome.');
+  }
+  document.getElementById('cloudStream').addEventListener('click',function(){
+    var m=document.getElementById('magnet').value.replace(/\s+/g,'');
+    if(!m){alert('حط لينك الماجنت الأول');return;}
+    openCloud(infoHashFromMagnet(m));
+  });
   document.getElementById('playMagnet').addEventListener('click',function(){
     var m=document.getElementById('magnet').value.replace(/\s+/g,'');
     if(!m){alert('حط لينك الماجنت الأول');return;}
