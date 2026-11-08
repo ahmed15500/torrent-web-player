@@ -56,11 +56,17 @@
 
 <div id="playerBox"></div>
 
-<p class="note">ملحوظة تقنية: التورنت من المتصفح بيشتغل بس مع التورنتات اللي ليها مصدر يقدر المتصفح يوصله (web seed أو بييرز WebTorrent). التورنتات العادية المنتشرة على مواقع التورنت أغلبها بييرزها بتتصل ببروتوكول مبيشتغلش جوه المتصفح، فالمشغّل هيقولك كده صراحة بدل ما يعلّق. ملفات MP4 وWebM بتشتغل أحسن حاجة؛ صيغة MKV غالبًا مش بتشتغل على متصفحات الموبايل حتى بعد ما تنزل. <span style="opacity:.6">v2</span></p>
+<p class="note">ملحوظة تقنية: التورنت من المتصفح بيشتغل بس مع التورنتات اللي ليها مصدر يقدر المتصفح يوصله (web seed أو بييرز WebTorrent). التورنتات العادية المنتشرة على مواقع التورنت أغلبها بييرزها بتتصل ببروتوكول مبيشتغلش جوه المتصفح، فالمشغّل هيقولك كده صراحة بدل ما يعلّق. ملفات MP4 وWebM بتشتغل أحسن حاجة؛ صيغة MKV غالبًا مش بتشتغل على متصفحات الموبايل حتى بعد ما تنزل. <span style="opacity:.6">v3</span></p>
 
-<script src="https://cdn.jsdelivr.net/npm/webtorrent@2.6.5/dist/webtorrent.min.js"></script>
-<script>
-(function(){
+<script type="module">
+(async function(){
+  var WebTorrentCtor=null;
+  try{
+    WebTorrentCtor=(await import('https://cdn.jsdelivr.net/npm/webtorrent@2.6.5/dist/webtorrent.min.js')).default;
+  }catch(e){
+    document.getElementById('status').textContent='⚠️ مقدرتش أحمل مكتبة التورنت — تأكد من الإنترنت وحدّث الصفحة.';
+    return;
+  }
   var statusEl=document.getElementById('status');
   var filesEl=document.getElementById('files');
   var barWrap=document.getElementById('barWrap');
@@ -98,8 +104,8 @@
   // ---------- Torrent ----------
   var client=null,curTorrent=null,tickTimer=null,startTime=0,metaGot=false,explained=false;
   function ensureClient(){
-    if(typeof WebTorrent==='undefined'){status('⚠️ مكتبة WebTorrent لم تُحمّل — تأكد من الإنترنت وحدّث الصفحة.');return null;}
-    if(!client){client=new WebTorrent({maxConns:30});}
+    if(!WebTorrentCtor){status('⚠️ مكتبة التورنت لسه بتحمل — استنى ثواني وحاول تاني.');return null;}
+    if(!client){client=new WebTorrentCtor({maxConns:30});}
     return client;
   }
   function magnetName(m){
