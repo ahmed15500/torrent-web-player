@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>مشغّل التورنت — خاص</title>
+<style>
+  :root{--bg:#0d1420;--panel:#16202f;--line:#243449;--txt:#e8eef6;--mut:#8fa3ba;--acc:#2f81f7;--acc2:#3fb68b}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--txt);font-family:"Segoe UI",Tahoma,Arial,sans-serif;padding:14px;max-width:760px;margin:0 auto}
+  h1{font-size:20px;margin:6px 0 2px}
+  .sub{color:var(--mut);font-size:13px;margin-bottom:14px;line-height:1.7}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:14px}
+  .card h2{font-size:15px;margin-bottom:10px;color:var(--acc)}
+  label{display:block;font-size:13px;color:var(--mut);margin-bottom:6px}
+  input[type=text]{width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:#0b111c;color:var(--txt);font-size:15px;direction:ltr;text-align:left}
+  input[type=file]{width:100%;color:var(--mut);font-size:14px}
+  button{width:100%;margin-top:10px;padding:13px;border:0;border-radius:10px;background:var(--acc);color:#fff;font-size:16px;font-weight:700;cursor:pointer}
+  button.green{background:var(--acc2)}
+  button:active{opacity:.85}
+  #playerBox{margin:14px 0}
+  #playerBox video{width:100%;border-radius:12px;background:#000;max-height:70vh}
+  #status{font-size:13px;color:var(--mut);line-height:1.9;white-space:pre-wrap;word-break:break-word}
+  #files{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+  .fbtn{background:#0b111c;border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:11px;text-align:right;font-size:14px;cursor:pointer}
+  .fbtn:active{border-color:var(--acc)}
+  .bar{height:8px;background:#0b111c;border-radius:6px;overflow:hidden;margin-top:8px}
+  .bar>i{display:block;height:100%;width:0;background:var(--acc2);transition:width .3s}
+  .note{font-size:12px;color:var(--mut);line-height:1.9}
+</style>
+</head>
+<body>
+<h1>🎬 مشغّل التورنت والروابط</h1>
+<p class="sub">شغّل ملفاتك من تليفونك مباشرة — من غير تحميل ولا تثبيت. كل حاجة بتشتغل جوه متصفحك، ومفيش أي حاجة بتترفع لأي سيرفر.</p>
+
+<div class="card">
+  <h2>١) رابط مباشر (ملف على موقعك)</h2>
+  <label>حط لينك ملف الفيديو المباشر (mp4 / webm)</label>
+  <input type="text" id="directUrl" placeholder="https://example.com/movie.mp4">
+  <button class="green" id="playDirect">▶ تشغيل الرابط</button>
+</div>
+
+<div class="card">
+  <h2>٢) تورنت (ماجنت أو ملف .torrent)</h2>
+  <label>لينك الماجنت</label>
+  <input type="text" id="magnet" placeholder="magnet:?xt=urn:btih:...">
+  <button id="playMagnet">▶ تشغيل الماجنت</button>
+  <div style="height:12px"></div>
+  <label>أو اختر ملف .torrent من جهازك</label>
+  <input type="file" id="torrentFile" accept=".torrent,application/x-bittorrent">
+  <div id="status"></div>
+  <div class="bar" id="barWrap" style="display:none"><i id="barFill"></i></div>
+  <div id="files"></div>
+</div>
+
+<div id="playerBox"></div>
+
+<p class="note">ملحوظة تقنية: التورنت من المتصفح بيشتغل مع التورنتات المتوافقة مع WebTorrent (اللي ليها web seeds أو بييرز بيتصلوا بالمتصفح). التورنتات العادية من غير دعم WebTorrent ممكن متلاقيش بييرز من المتصفح. ملفات MP4 وWebM بتشتغل أحسن حاجة؛ صيغة MKV غالبًا مش بتشتغل على متصفحات الموبايل.</p>
+
+<script src="https://cdn.jsdelivr.net/npm/webtorrent@2.6.5/dist/webtorrent.min.js"></script>
+<script>
+(function(){
+  var statusEl=document.getElementById('status');
+  var filesEl=document.getElementById('files');
+  var barWrap=document.getElementById('barWrap');
+  var barFill=document.getElementById('barFill');
+  var playerBox=document.getElementById('playerBox');
+  function status(t){statusEl.textContent=t;}
+  function fmt(n){if(!isFinite(n))return '0';var u=['B','KB','MB','GB'];var i=0;while(n>=1024&&i<3){n/=1024;i++;}return n.toFixed(1)+' '+u[i];}
+
+  document.getElementById('playDirect').addEventListener('click',function(){
+    var u=document.getElementById('directUrl').value.trim();
+    if(!u){alert('حط الرابط الأول');return;}
+    playerBox.innerHTML='';
+    var v=document.createElement('video');
+    v.controls=true;v.autoplay=true;v.playsInline=true;v.src=u;
+    playerBox.appendChild(v);
+    playerBox.scrollIntoView({behavior:'smooth'});
+  });
+
+  var client=null,curTorrent=null;
+  function ensureClient(){
+    if(typeof WebTorrent==='undefined'){status('⚠️ مكتبة WebTorrent لم تُحمّل — تأكد من الإنترنت وحدّث الصفحة.');return null;}
+    if(!client){client=new WebTorrent();}
+    return client;
+  }
+  function addTorrent(id){
+    var c=ensureClient();if(!c)return;
+    if(curTorrent){try{curTorrent.destroy();}catch(e){}}
+    filesEl.innerHTML='';barWrap.style.display='block';barFill.style.width='0%';
+    status('⏳ بيتصل وبيجيب معلومات التورنت…');
+    var opts={announce:[
+      'wss://tracker.openwebtorrent.com',
+      'wss://tracker.webtorrent.dev',
+      'wss://tracker.btorrent.xyz',
+      'wss://tracker.files.fm:7073/announce'
+    ]};
+    curTorrent=c.add(id,opts,function(t){
+      status('✅ التورنت جاهز: '+t.name+'\nاختر ملف فيديو للتشغيل:');
+      t.files.forEach(function(f){
+        var isVideo=/\.(mp4|webm|mkv|mov|m4v)$/i.test(f.name);
+        var b=document.createElement('button');
+        b.className='fbtn';
+        b.textContent=(isVideo?'🎞️ ':'📄 ')+f.name+'  ('+fmt(f.length)+')';
+        if(isVideo){
+          b.addEventListener('click',function(){
+            playerBox.innerHTML='';
+            if(typeof f.appendTo==='function'){
+              f.appendTo(playerBox,{autoplay:true,controls:true});
+            }else if(typeof f.renderTo==='function'){
+              var v=document.createElement('video');v.controls=true;v.autoplay=true;playerBox.appendChild(v);
+              f.renderTo(v);
+            }else{
+              f.getBlobURL(function(err,url){
+                if(err){status('⚠️ '+err.message);return;}
+                var v=document.createElement('video');v.controls=true;v.autoplay=true;v.src=url;playerBox.appendChild(v);
+              });
+            }
+            playerBox.scrollIntoView({behavior:'smooth'});
+          });
+        }
+        filesEl.appendChild(b);
+      });
+    });
+    curTorrent.on('error',function(e){status('⚠️ خطأ: '+(e&&e.message?e.message:e));});
+    setInterval(function(){
+      if(!curTorrent)return;
+      barFill.style.width=(curTorrent.progress*100).toFixed(1)+'%';
+      if(curTorrent.progress<1){
+        status('⏬ بيحمّل… '+(curTorrent.progress*100).toFixed(1)+'%'+
+          '\nالسرعة: '+fmt(curTorrent.downloadSpeed)+'/ث — البييرز: '+curTorrent.numPeers+
+          '\nاتنزّل: '+fmt(curTorrent.downloaded)+' من '+fmt(curTorrent.length));
+      }
+    },1000);
+  }
+  document.getElementById('playMagnet').addEventListener('click',function(){
+    var m=document.getElementById('magnet').value.trim();
+    if(!m){alert('حط لينك الماجنت الأول');return;}
+    addTorrent(m);
+  });
+  document.getElementById('torrentFile').addEventListener('change',function(e){
+    if(e.target.files&&e.target.files[0]){addTorrent(e.target.files[0]);}
+  });
+})();
+</script>
+</body>
+</html>
