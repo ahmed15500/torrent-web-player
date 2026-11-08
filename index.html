@@ -56,7 +56,7 @@
 
 <div id="playerBox"></div>
 
-<p class="note">ملحوظة تقنية: التورنت من المتصفح بيشتغل بس مع التورنتات اللي ليها مصدر يقدر المتصفح يوصله (web seed أو بييرز WebTorrent). التورنتات العادية المنتشرة على مواقع التورنت أغلبها بييرزها بتتصل ببروتوكول مبيشتغلش جوه المتصفح، فالمشغّل هيقولك كده صراحة بدل ما يعلّق. ملفات MP4 وWebM بتشتغل أحسن حاجة؛ صيغة MKV غالبًا مش بتشتغل على متصفحات الموبايل حتى بعد ما تنزل. <span style="opacity:.6">v3</span></p>
+<p class="note">ملحوظة تقنية: التورنت من المتصفح بيشتغل بس مع التورنتات اللي ليها مصدر يقدر المتصفح يوصله (web seed أو بييرز WebTorrent). التورنتات العادية المنتشرة على مواقع التورنت أغلبها بييرزها بتتصل ببروتوكول مبيشتغلش جوه المتصفح، فالمشغّل هيقولك كده صراحة بدل ما يعلّق. ملفات MP4 وWebM بتشتغل أحسن حاجة؛ صيغة MKV غالبًا مش بتشتغل على متصفحات الموبايل حتى بعد ما تنزل. <span style="opacity:.6">v3.1</span></p>
 
 <script type="module">
 (async function(){
@@ -102,7 +102,7 @@
   }
 
   // ---------- Torrent ----------
-  var client=null,curTorrent=null,tickTimer=null,startTime=0,metaGot=false,explained=false;
+  var client=null,curTorrent=null,tickTimer=null,startTime=0,metaGot=false,explained=false,playing=false;
   function ensureClient(){
     if(!WebTorrentCtor){status('⚠️ مكتبة التورنت لسه بتحمل — استنى ثواني وحاول تاني.');return null;}
     if(!client){client=new WebTorrentCtor({maxConns:30});}
@@ -128,6 +128,7 @@
     },50000);
   }
   function playFile(f){
+    playing=true;
     playerBox.innerHTML='';
     if(!isPlayable(f.name)){
       status('⚠️ الملف «'+f.name+'» صيغته مش مدعومة في متصفحات الموبايل (MKV/AVI). حتى لو التحميل كمّل، المتصفح غالبًا مش هيشغّله. بحاول أعرضه برضه — لو ماشتغلش، دي حدود المتصفح مش المشغّل.');
@@ -161,7 +162,7 @@
     if(tickTimer){clearInterval(tickTimer);tickTimer=null;}
     filesEl.innerHTML='';barWrap.style.display='block';barFill.style.width='0%';
     playerBox.innerHTML='';
-    metaGot=false;explained=false;startTime=Date.now();
+    metaGot=false;explained=false;playing=false;startTime=Date.now();
     var nm=(typeof id==='string')?magnetName(id):'';
     status('⏳ بيتصل وبيجيب معلومات التورنت'+(nm?' «'+nm+'»':'')+'…\nلو لقى مصادر متاحة للمتصفح هيبدأ على طول.');
     var opts={announce:[
@@ -185,9 +186,15 @@
       barFill.style.width=(curTorrent.progress*100).toFixed(1)+'%';
       if(explained)return;
       if(curTorrent.progress<1){
-        status('⏬ بيحمّل «'+(curTorrent.name||nm||'التورنت')+'»… '+(curTorrent.progress*100).toFixed(1)+'%'+
-          '\nالسرعة: '+fmt(curTorrent.downloadSpeed)+'/ث — المصادر المتصلة: '+curTorrent.numPeers+
-          '\nاتنزّل: '+fmt(curTorrent.downloaded)+' من '+fmt(curTorrent.length));
+        if(curTorrent.downloaded===0&&curTorrent.numPeers===0){
+          status('🔍 بيحاول يوصل لأي مصدر للتورنت «'+(nm||'التورنت')+'»…\nلسه مفيش اتصال — لو التورنت ليه مصادر متاحة للمتصفح هيبدأ البث في ثواني، ولو لا هيظهر التشخيص هنا.');
+        }else if(playing){
+          status('▶ البث شغّال دلوقتي — الفيديو بيوصلك حتة حتة وانت بتتفرج، ومش محتاج تستنى الملف كله.\nاللي اتجاب لحد دلوقتي: '+(curTorrent.progress*100).toFixed(1)+'% من «'+(curTorrent.name||nm||'')+'» — السرعة: '+fmt(curTorrent.downloadSpeed)+'/ث — المصادر: '+curTorrent.numPeers);
+        }else{
+          status('⏬ بيجهّز البث «'+(curTorrent.name||nm||'التورنت')+'»… اتجاب '+(curTorrent.progress*100).toFixed(1)+'%'+
+            '\nالسرعة: '+fmt(curTorrent.downloadSpeed)+'/ث — المصادر المتصلة: '+curTorrent.numPeers+
+            '\nاتجاب: '+fmt(curTorrent.downloaded)+' من '+fmt(curTorrent.length)+' — التشغيل بيبدأ تلقائيًا أول ما يتجمع أول جزء.');
+        }
       }else{
         status('✅ التحميل كمّل ١٠٠٪ — «'+(curTorrent.name||'')+'». اختر الملف من القايمة لو ما اشتغلش لوحده.');
       }
